@@ -1,0 +1,375 @@
+#!/usr/bin/env python
+
+# TODO: refactor
+# TODO: if debug, print stuff
+# TODO: fuse.FuseError: service loop failed
+
+
+import sys
+import errno
+import stat
+import os
+
+from tagdbfs import *
+
+
+# some spaghetti to make it usable without fuse-py being installed
+for i in True, False:
+    try:
+        import fuse
+        from fuse import Fuse
+    except ImportError:
+        if i:
+            try:
+                import _find_fuse_parts
+            except ImportError:
+                pass
+        else:
+            raise
+
+
+if not hasattr(fuse, '__version__'):
+    raise RuntimeError, \
+        "your fuse-py doesn't know of fuse.__version__, probably it's too old."
+
+# This setting is optional, but it ensures that this class will keep
+# working after a future API revision
+fuse.fuse_python_api = (0, 2)
+
+fuse.feature_assert('stateful_files', 'has_init')
+
+
+# TODO: this is ugly and maybe not really needed
+# fake st_nlink=3 for tags (directories) to make
+# find etc happy (> 2 means there are sub directories)
+# TODO: os.stat returns a readonly stat class
+
+def dumpstat(s):
+    print "s.st_atime", s.st_atime
+    print "s.st_ctime", s.st_ctime
+    print "s.st_ino", s.st_ino
+    print "s.st_nlink", s.st_nlink
+    print "s.st_uid", s.st_uid
+    print "s.st_blksize", s.st_blksize
+    print "s.st_dev", s.st_dev
+    print "s.st_mode", s.st_mode
+    print "s.st_rdev", s.st_rdev
+    print "s.st_blocks", s.st_blocks
+    print "s.st_gid", s.st_gid
+    print "s.st_mtime", s.st_mtime
+    print "s.st_size", s.st_size
+
+class dummystat:
+    def __init__(self, s):
+	self.st_atime = s.st_atime
+	self.st_ctime = s.st_ctime
+	self.st_ino = s.st_ino
+	self.st_nlink = s.st_nlink
+	self.st_uid = s.st_uid
+	self.st_blksize = s.st_blksize
+	self.st_dev = s.st_dev
+	self.st_mode = s.st_mode
+	self.st_rdev = s.st_rdev
+	self.st_blocks = s.st_blocks
+	self.st_gid = s.st_gid
+	self.st_mtime = s.st_mtime
+	self.st_size = s.st_size
+
+
+def path_split(path):
+    if path == "/":
+	return []
+
+    return path.split("/")[1:] # skip /
+
+class TagFSLookupFailed(Exception): pass
+
+class TagFS(Fuse):
+    def __init__(self, *args, **kw):
+        Fuse.__init__(self, *args, **kw)
+
+    def lookup(self, parts):
+	tags = []
+	found = 0
+	for part in parts:
+	    try:
+		tags.append(self.db.get_tag(part))
+		found += 1
+	    except TagDBTagDoesNotExist:
+		tags.append(False)
+	
+	# more then one missing tag or one missing and its not last
+	if len(parts) - found > 1 or \
+	    (len(parts) - found == 1 and tags[-1] != False):
+	    raise TagFSLookupFailed()
+
+	return (found, tags)
+
+    def getattr(self, path):
+        print "getattr: " + path
+
+	parts = path_split(path)
+	if parts == []:
+            # use data root directroy for no particular reason 
+            return os.stat(self.db.root)
+
+        try: (found, tags) = self.lookup(parts)
+        except TagFSLookupFailed:
+
+	    print "failed", parts
+	    
+	    if len(parts) == 2:
+		try:
+		    (s, _) = self.db.get_file(parts[0], [])
+		    self.db.get_tag(parts[1])
+		    s = dummystat(s)
+		    s.st_mode &= ~os.path.stat.S_IFREG
+		    s.st_mode &= ~os.path.stat.S_IFBLK # why?!
+		    s.st_mode |= os.path.stat.S_IFLNK
+		    return s
+		except TagDBFileDoesNotExist:
+		    return -errno.ENOENT
+		except TagDBTagDoesNotExist:
+		    return -errno.ENOENT
+
+	    return -errno.ENOENT
+
+	# directory, all parts found as tags
+	if len(parts) == found:
+	    #return self.db.get_tag(parts[-1])
+	    s = dummystat(self.db.get_tag(parts[-1]))
+	    s.st_nlink += 1
+	    return s
+	# file, last not found
+	else:
+	    try:
+		(s, _) = self.db.get_file(parts[-1], parts[:-1])
+		
+		if len(parts) == 1:
+		    s = dummystat(s)
+		    # remove IFREG bit and add IFDIR insted
+		    s.st_mode &= ~os.path.stat.S_IFREG
+		    s.st_mode &= ~os.path.stat.S_IFBLK
+		    s.st_mode |= os.path.stat.S_IFDIR
+		    s.st_mode |= 0111
+		    s.st_nlink = 3
+		    return s
+		else:
+		    return s
+	    except TagDBFileDoesNotExist:
+		return -errno.ENOENT
+
+    def readlink(self, path):
+        print "readlink: " + path
+	
+	parts = path_split(path)
+        try: (found, tags) = self.lookup(parts)
+        except TagFSLookupFailed:
+	    if len(parts) == 2:
+		try:
+		    (s, _) = self.db.get_file(parts[0], [])
+		    self.db.get_tag(parts[1])
+
+		    return "../" + parts[1]
+
+		except TagDBFileDoesNotExist:
+		    return -errno.ENOENT
+		except TagDBTagDoesNotExist:
+		    return -errno.ENOENT
+	    return -errno.ENOENT
+
+	if len(parts) == found:
+	    return -errno.EISDIR # TODO: readlink on directory
+	else:
+	    try:
+		return self.db.get_link(parts[-1])
+	    except TagDBFileDoesNotExist:
+		return -errno.ENOENT
+
+    def readdir(self, path, offset):
+        print "readdir: " + path
+	
+	parts = path_split(path)
+	if parts == []:
+	    for tag in self.db.intersection([]):
+		yield fuse.Direntry(tag)
+	    return
+        
+        try: (found, tags) = self.lookup(parts)
+        except TagFSLookupFailed: return
+	
+	# directory, all parts found as tags
+	if len(parts) == found:
+	    (files, others) = self.db.intersection(parts)
+	    # TODO: . and .. ?
+	    yield fuse.Direntry(".")
+	    yield fuse.Direntry("..")
+	    for file in files:
+		yield fuse.Direntry(file)
+	    for other in others:
+		yield fuse.Direntry(other)
+	# file, last not found
+	else:
+	    # TODO: this is weird, will probably not get here if getattr return
+	    # it is a dir... hmm
+	    if len(parts) != 1:
+		return
+
+	    try:
+	    	(_, (_, tags)) = self.db.get_file(parts[-1], parts[:-1])
+
+		for tag in tags:
+		    yield fuse.Direntry(tag)
+
+	    except TagDBFileDoesNotExist:
+		return #-errno.ENOENT
+
+    def unlink(self, path):
+        print "unlink: " + path
+	
+	parts = path_split(path)
+	if parts == []:
+	    return -errno.EPERM
+        
+        try: (found, tags) = self.lookup(parts)
+        except TagFSLookupFailed:
+	    if len(parts) == 2:
+		try:
+		    (s, _) = self.db.get_file(parts[0], [])
+		    self.db.get_tag(parts[1])
+		    self.db.remove_file(parts[0], parts[1:])
+
+		    return
+
+		except TagDBFileDoesNotExist:
+		    return -errno.ENOENT
+		except TagDBTagDoesNotExist:
+		    return -errno.ENOENT
+	    
+	    return -errno.ENOENT
+
+	# directory, all parts found as tags
+	if len(parts) == found:
+	    return -errno.EISDIR
+	# file, last not found
+	else:
+	    try:
+		self.db.remove_file(os.path.basename(parts[-1]), parts[:-1])
+	    except TagDBFileDoesNotExist:
+		return -errno.ENOENT
+
+    def rmdir(self, path):
+        print "rmdir: " + path
+
+	parts = path_split(path)
+	if parts == []:
+	    return -errno.EPERM
+
+        try: (found, tags) = self.lookup(parts)
+        except TagFSLookupFailed: return -errno.ENOENT
+
+	# directory, all parts found as tags
+	if len(parts) == found:
+	    try:
+		self.db.remove_tag(parts[-1])
+	    except TagDBTagHasFiles:
+		return -errno.ENOTEMPTY
+	# file, last not found
+	else:
+	    try:
+		self.db.get_file(parts[-1], partd[:-1])
+		return -errno.ENOTDIR
+	    except TagDBFileDoesNotExist:
+		return -errno.ENOENT
+
+    def symlink(self, path, dest_path):
+        print "symlink: " + path + " " + dest_path
+
+	parts = path_split(dest_path)
+	if parts == []:
+	    return -errno.EPERM
+        
+        try: (found, tags) = self.lookup(parts)
+        except TagFSLookupFailed: return -errno.ENOENT
+
+	# directory, all parts found as tags
+        # or just one part found
+	if len(parts) == found or len(parts) == 1:
+	    return -errno.EPERM
+	# file, last not found
+	else:
+	    try:
+                if path.find("\n") != -1 or \
+                    os.path.basename(path) != parts[-1]:
+                    return -errno.EINVAL
+
+		self.db.add_file(parts[-1], path, parts[:-1])
+	    except TagDBFileAlreadyExists:
+		return -errno.EEXIST
+
+#    def rename(self, path, path1):
+#        os.rename("." + path, "." + path1)
+
+    def mkdir(self, path, mode):
+        print "mkdir: " + path
+
+	parts = path_split(path)
+	if parts == []:
+	    return -errno.EPERM
+        
+        try: (found, tags) = self.lookup(parts)
+        except TagFSLookupFailed: return -errno.ENOENT
+
+	# directory, all parts found as tags
+	if len(parts) == found:
+	    return -errno.EEXIST
+	# file, last not found
+	else:
+	    try:
+                if parts[-1].find("\n") != -1:
+                    return -errno.EINVAL
+		self.db.add_tag(parts[-1])
+	    except TagDBTagAlreadyExists:
+		return -errno.EEXIST
+
+#    def utime(self, path, times):
+#        print "utime: " + path
+#        os.utime("." + path, times)
+
+#    def access(self, path, mode):
+#        print "access: " + path
+
+    def write(self, path, buf):
+	print "open", path, buf
+    
+    def open(self, path, flags):
+	print "open", path, flags
+
+    def fsinit(self):
+        pass
+
+    def main(self, *a, **kw):
+	self.db = TagDBFS(root=os.getcwd() + os.path.sep + self.root)
+        return Fuse.main(self, *a, **kw)
+
+
+def main():
+
+    usage = """
+tagfs
+""" + Fuse.fusage
+
+    server = TagFS(version="%prog " + fuse.__version__,
+            usage=usage,
+            dash_s_do='setsingle')
+
+    server.parser.add_option(mountopt="root", metavar="PATH", default='root',
+                             help="tag database root [default: %default]")
+
+    server.root = "root"
+    server.parse(values=server, errex=1)
+    
+    server.main()
+
+if __name__ == '__main__':
+    main()

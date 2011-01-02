@@ -1,0 +1,25 @@
+Some notes about the code
+
+FIXME: write more...
+
+String compare via pointers: status = RPL_NOSUCHCHANNEL
+Works because of the constants in irc.h etc, but be carefull...
+Maybe i will switch to strcmp if this method gets messy.
+
+TALK_PUSH
+Sends a message if talk_wait is TRUE (someone is waiting), else skip send
+and continue execution
+
+TALK_POP
+Wait for a message, will _not_ set talk_wait to TRUE, you have to do it,
+most of the times you want to set it before doing something and then wait.
+When a message it received, set talk_wait to FALSE and continue execution.
+
+LOCK/UNLOCK
+Wrappers for G_LOCK/G_UNLOCK with debug output.
+
+There are most probably some possible deadlocks.
+
+
+Any questions? feel free to ask, mattias@sudac.org
+

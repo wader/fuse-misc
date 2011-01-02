@@ -1,0 +1,22 @@
+AC_PREREQ(2.57)
+AC_INIT(ircfs, 0.0, mattias@sudac.org)
+AM_CONFIG_HEADER([config.h])
+
+AC_CANONICAL_TARGET
+
+AM_INIT_AUTOMAKE(1.7)
+
+# Checks for programs.
+AC_PROG_CC
+AC_PROG_INSTALL
+
+AM_PATH_GLIB_2_0(2.0.0, [], AC_MSG_ERROR([Unable to find glib2]), [gthread])
+
+AC_CHECK_LIB(fuse, fuse_main, FUSE_LIBS="-lfuse -lpthread", AC_MSG_ERROR(Unable to find fuse), -lpthread)
+# define _FILE_OFFSET_BITS to make gcc happy about fuse.h
+AC_CHECK_HEADER(fuse.h, [], AC_MSG_ERROR(Unable to find fuse.h), [#define _FILE_OFFSET_BITS 64])
+AC_SUBST(FUSE_LIBS)
+
+AC_CONFIG_FILES([Makefile utils/Makefile])
+AC_OUTPUT
+

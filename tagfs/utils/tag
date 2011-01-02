@@ -1,0 +1,106 @@
+#!/usr/bin/env python
+
+import sys
+import optparse
+
+
+def store_list(option, opt_str, value, parser):
+    if len(parser.rargs) == 0:
+	raise optparse.OptionValueError("No argument given")
+
+    setattr(parser.values, option.dest,
+	    getattr(parser.values, option.dest, []) + [parser.rargs[0]])
+    del(parser.rargs[0])
+
+def tag_question(tags):
+    deleted = set()
+    while True:
+	print "Tags:"
+	for number, tag in zip(range(1, len(tags) + 1), tags):
+	    if tag in deleted:
+		print "    ",
+	    else:
+		print "ADD ",
+	    print "%d: %s" % (number, tag)
+	sys.stdout.write("Toggle or add new: ")
+	l = sys.stdin.readline().strip()
+	if l == "":
+	    break
+
+	try:
+	    n = int(l)
+	    if n > 0 and n <= len(tags):
+		tag = tags[n - 1]
+		if tag in deleted:
+		    deleted.remove(tag)
+		else:
+		    deleted.add(tag)
+	except ValueError:
+	    if l not in tags:
+		tags.append(l)
+
+    for tag in deleted:
+	tags.remove(tag)
+
+
+def imdb_lookup(title):
+    import imdb
+    
+    IMDB_PARAMS = {'accessSystem': 'web'}
+    i = imdb.IMDb(**IMDB_PARAMS)
+
+    in_encoding = sys.stdin.encoding or sys.getdefaultencoding()
+    out_encoding = sys.stdout.encoding or sys.getdefaultencoding()
+
+    title = unicode(title, in_encoding, 'replace')
+    try:
+        results = i.search_movie(title)
+    except imdb.IMDbError, e:
+        raise
+
+    if not results:
+        return None
+
+    movie = results[0]
+    i.update(movie)
+
+    tags = []
+    tags += movie.get("genres")
+    tags.append(str(movie.get("year")))
+    tags.append(str(movie.get("director")[0]))
+
+    return (movie.get("title"), tags)
+
+
+def main():
+    usage = "Usage: %prog [options] add/del/imdb file/dir ..."
+    parser = optparse.OptionParser(usage)
+    parser.set_defaults(dontask=False, noact=False, tag=[])
+    parser.add_option("-d", "--dontask", dest="dontask",
+	    action="store_true", help="Dont ask questions")
+    parser.add_option("-n", "--noact", dest="noact",
+	    action="store_true", help="Just act, dont do it")
+    parser.add_option("-t", "--tag", dest="tag",
+	    action="callback", callback=store_list, help="Additional tags")
+    
+    (options, args) = parser.parse_args()
+
+    #print args
+
+    print "Looking up '%s'..." % args[0],
+    sys.stdout.flush()
+    imdb = imdb_lookup(args[0])
+    if imdb == None:
+        print "no match"
+    else:
+        imdb_title, imdb_tags = imdb
+        print "got match '%s'" % imdb_title
+        tags = imdb_tags + parser.values.tag
+
+
+    tag_question(tags)
+
+
+if __name__ == "__main__":
+    main()
+

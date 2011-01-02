@@ -1,0 +1,356 @@
+Random notes and ideas, some of them crazy, some out dated, some already fixed.
+
+we should use direct_io in fuse..
+miklos saz:
+The direct_io option means that the kernel page cache (which deals
+with memory mapping and caching of file reads/writes) is disabled, and
+read/write operations are directly passed to the userspace filesystem.
+
+how to attach data to fs_entry?
+
+new data structures for storing irc data...hmm
+renamed types, channel -> irc_channel
+
+use glib hash tables is needed, create helper struct to pass as data
+
+figure out how the fuse arguments works..
+
+
+table drivern
+
+take a look at the linux proc fs api?
+
+fuse_fs_root_table
+{
+    "/", DIR, &fuse_fs_root_getdir
+}
+
+fuse_fs_channel_table
+{
+
+}
+
+
+unlink(path)
+{
+    entry = lookup(path);
+    if(entry == NULL)
+        return -ENOENT;
+
+    if(entry.type & DIR)
+        return -EISDIR;
+
+    if(entry.unlink == NULL)
+        return -EPERM;
+
+    return entry.unlink(path);
+}
+
+
+mkdir(path)
+{
+    entry = lookup(path);
+    if(entry == NULL)
+    {
+        entry = lookup(basename(path));
+        if(entry == NULL)
+            return -ENOENT;
+        else
+            return entry.mkdir(
+    }
+    else
+        return -EEXISTS;
+}
+
+
+
+Michael "mag" Grigoriev saz:
+No, from what I remember, the kernel does not look at mod time.
+But you can use a FUSE_INVALIDATE opcode to send a message the kernel to
+flush the cache associated with a given inode.
+
+
+
+
+http://www.bitlbee.org/main.php/news.html
+hmm... looks like we have icqfs, msnfs etc once we get ircfs done :)
+
+
+rm -rf #channel, add hidden read-only file to stop it?
+
+
+https://seth.intheinter.net:8081/svn/fusedav/trunk/src/fusedav.c
+st->st_uid = getuid();
+st->st_gid = getgid();
+take care of fuse_mount...
+fuse_exit(fuse);
+
+disconnect, -EIO?..
+
+dir . and .. ?
+
+user (private messages, whois)
+channel (channel_user list)
+channel_user (name, op...)
+
+
+
+fix times
+fix owner..
+
+fix smart ring-buffer-random-access-line-oriented-buffer for messages..
+
+
+check for memory leaks..
+
+
+no reply commands:
+sending mode thats already made
+
+
+Race cond?
+S: MODE #test +o irctest
+R: :someone!sdsd@nightlife MODE #test +o bla
+R: :bla!sdsd@nightlife MODE #test +o irctest
+
+
+messages, private and channel (notice?)
+notices
+ctcp
+
+
+
+
+
+better errors... EINVAL..etc
+
+use buffer and wait for \n, topic and quote..
+
+generlize error callbacks.. no such channel can be other than a join error
+
+Errors:
+433, nickname already in use...
+
+g_list_find....
+
+rm to join? rm up update things?
+
+mkdir #bla
+cd bla
+rm join
+
+cd user/bla
+rm update
+c
+
+whois stuff
+cat users/someone/host
+
+
+hashtables for channel, userlists..
+
+user
+{
+    name
+    op
+    voice
+    
+}
+
+comment about not doing "@+nicname"
+s = "";
+if(op) s = append(s, "@")
+else if(voice) s = append(s, "+")
+s = append(s, name)
+
+
+
+stupid things:
+dcc support, gaa... cat user/dcc/recivied.zip > saved.zip
+cat send.zip > user/dcc/send.zip
+
+
+
+use fact that kick, part etc, is from us...
+
+
+sending, status flag = waiting, ok, error, permisson...
+do it with async channel, talking_status
+
+
+raw/quote:
+    lock talking
+    send
+    unlock talking
+
+
+privmsg:
+    lock data
+    if find channel
+        if
+    unlock data
+    
+
+mkdir
+    lock talking?
+    
+    if in channel
+        result: exists
+    else
+        send join
+        wait message
+        if message "OK"
+            error = 0
+        else
+            error = PERM
+
+    unlock talking
+        
+    
+
+
+
+
+
+
+
+use global conditions that we can wait for
+    join, part, mode, kick, ....
+
+
+mkdir
+    lock ...
+    send join
+    wait for join
+
+
+
+
+make irc.c threaded?...
+
+make event system..
+
+try busy wait
+    join:
+        send JOIN
+        wait for JOIN or error (how? cond, mutex, busy wait (add dummy, wait for delete or flag)
+
+
+    part:
+        send PART
+        wait for 
+
+    kick:
+        send KICK
+        wait for KICK or error (how? ...
+
+
+HACKS:
+channel with passoword: echo -n "JOIN #channel,key" > quote
+
+
+no join until connected.. how?
+
+thread jungle... blä!
+
+
+IDEAS:
+try to use file/dir time, even permissons?
+
+TODO: skip channel_user and user.. use just user? seams useless, or?
+
+ctrl-c in fuse thread, what happens?
+
+user
+{
+    name;
+    whois stuff?
+    private_messages;
+}
+
+channel_user
+{
+    user_ref;
+    op;
+    voice;
+}
+
+TODO: kicks?... dont know?
+channel
+{
+    name;
+    channel_user_list;
+    topic;
+    topicauthor;
+    modes; // key...
+    ban_list;
+    messages... author?..
+}
+
+pending_channel
+{
+    name;
+    lock;
+}
+
+channel_list;
+
+pending_channel_list;
+
+TODO: what if another mkdirs on same dir while waiting? mutex in mkdir and make second find same lock?
+TODO: use GStaticMutex
+TODO: what if canceled? if possible? ... eventualy a irc callback is called and lock and pending channel is removed? sems ok to me :)
+fuser thread (mkdir):
+    add pending channel #test (lock mutex, make next lock block)
+    send "join #test"
+    lock pending channel #test (will block)
+    find channel #test
+        if not = perm error...
+        if ok = ok
+
+irc thread (callback_join)
+    find pending channel #test
+        if not bail (we did not join this channel! user raw?)
+            or should we just add it without unlock etc?
+        if ok
+            add channel #test (move to before pading check, dont care... )
+            unlock channel #test lock
+            remove pending channel #test
+    
+irc thread (callback_{wrongkey|full ... )
+    find pending channel #test
+        if not, we dont care... faild to join channel we did not join :)
+        if ok
+            unlock channel #test lock
+            remove pending channel #test
+    
+
+
+
+/raw (totaly raw?)
+/quote (line orinted.. )
+/motd
+/users
+    /usera
+    /usera
+        /channels
+            /#channela
+            /#channelb...? overkill
+        /idle
+        /....
+    /userb
+/#channela
+    /usera -> ../users/usera
+/#channelb
+    /topic?... conflict..
+    /topic
+        /content
+        /usera -> ../../users/usera (maybe dangling... )
+    /modes
+    /bans (or just text fil?)
+        /mask1
+        /mask2
+    /users/
+        /usera -> ../../users/usera
+        /userb -> ../../users/userb
+

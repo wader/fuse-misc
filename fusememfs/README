@@ -1,0 +1,7 @@
+fusememfs, a FUSE filesystem that uses system memory for storage
+Mattias Wadman <mattias@sudac.org>
+
+Requirements: FUSE and glib 2.0
+
+Quite useless thing? yes i know...
+

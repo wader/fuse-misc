@@ -1,0 +1,9 @@
+CFLAGS+=-I. -g -D_FILE_OFFSET_BITS=64 -Wall -D_GNU_SOURCE
+LDFLAGS+=-lfuse
+
+all: ccxfuse
+
+ccxfuse: ccxfuse.o ccxclient.o ccxclientconn.o ccutil.o ccbuffer.o ccdebug.o ccxmltrans.o ccxencode.o ccxdiscover.o
+
+clean:
+	rm -f ccxfuse *.o core *~

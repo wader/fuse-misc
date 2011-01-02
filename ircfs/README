@@ -1,0 +1,27 @@
+ircfs, an IRC client with filesystem interface
+Mattias Wadman <mattias@sudac.org>
+
+Remember!: this is EXPERIMENTAL CODE
+
+Install CVS HEAD version of fuse, http://sourceforge.net/projects/avf/
+
+Install from CVS:
+TODO: use autoreconf insted?
+./autogen.sh && ./configure && make
+
+FIXME: write stuff
+
+Imaginary future frequently asked questions:
+
+Q: Why?
+A: Its a fun and stupid idea and you learn much while develop it :)
+
+Q: Why do I kick all users when part a channel?
+A: Probably because your file manager recursivly deleted all files and
+directories below before deleting the directory itself.
+Currently no solution to this, use "rmdir" insted.
+
+Q: How do i join a channel with key protection?
+A: It is currently not possible to do via the mkdir syscall, insted try:
+echo "JOIN #channel key" > /path/to/mount/quote
+

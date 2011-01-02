@@ -1,0 +1,68 @@
+#!/usr/bin/env php
+<?php
+
+/*
+Mattias Wadman <mattias@sudac.org>
+
+Hack to generate #define lines from http://www.alien.net.au/irc/irc2numerics.def
+
+Usage: cat irc2numerics.def | ./irc2numerics_generate
+
+$Id$
+
+*/
+
+$h = fopen('php://stdin', 'r');
+while($s = fgets($h))
+{
+    $s = rtrim($s, "\n");
+
+    if($s == 'irc2numerics = {')
+    {
+        $reply = array();
+
+        while($s = fgets($h))
+        {
+            $s = trim(rtrim($s, "\n"));
+            
+            if($s == '};')
+                break;
+
+            $parts = explode('=', $s, 2); // only first "="
+            if(count($parts) != 2)
+                continue;
+           
+            if(substr($s, -1, 1) != ';') // concat lines
+            {
+                $reply[trim($parts[0])] = substr(trim($parts[1]), 1, -1);
+                
+                while($s = fgets($h))
+                {
+                    $s = trim(rtrim($s, "\n")); // 353 has a trailing space on concat line
+                    if(substr($s, -1, 1) == ';')
+                    {
+                        $reply[trim($parts[0])] .= substr(trim($s), 1, -2);
+
+                        break;
+                    }
+                    else
+                        $reply[trim($parts[0])] .= substr(trim($s), 1, -1);
+                }
+            }
+            else
+                $reply[trim($parts[0])] = substr(trim($parts[1]), 1, -2);
+        }
+
+
+        printf('#define %-40s "%03d"%s' . "\n",
+            $reply["name"] . ($reply['conflict'] == 'yes' ? '_' . strtr(strtoupper($reply['origin']), ' ,-?', '____')  : ''),
+            $reply["numeric"],
+            isset($reply['format']) ? ' /* ' . $reply['format'] . ' */' : ''
+            );
+
+//        var_dump($reply);
+    }
+}
+fclose($h);
+
+?>
