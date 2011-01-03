@@ -1,0 +1,59 @@
+
+move to Emakefile?
+
+
+fuse_forward hangs on mount.. in libfuse?
+
+proc_lib, ack...
+
+erl_interface path, current erl version
+
+after open, is read/write serialized per inode?
+    read/write returns new state...
+
+fusemount arguments, some kernel mount options.. what others? how to handle?
+
+open from use
+    call open in user fs
+    send reply
+    wait for errno,
+        if ENOENT
+            call release in user fs
+        if ok
+            done
+
+fuse device (from userland):
+
+read:
+    ENOENT
+        just reread
+        libfuse: restart
+    EINTR
+        libfuse: continue..
+    EAGAIN
+    ENODEV
+        libfuse: kern_recv.. just return it
+        very bad
+    ERESTARTSYS
+
+    EIO
+
+    E2BIG
+        setxattr data to large
+
+write:
+    ENOENT:
+        open
+        opendir
+        create?
+        entry?
+            interrupted.. forget node..
+
+    EINVAL:
+        invalid fuse message
+    EIO:
+        ??
+
+dir filler, accumulate in list, build tuple when done?
+
+

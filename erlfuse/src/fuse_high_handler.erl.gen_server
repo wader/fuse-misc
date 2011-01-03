@@ -1,0 +1,129 @@
+-module(fuse_high_handler).
+-behavior(gen_server).
+
+% api
+-export([start_link/3, request/2, write_response/2]).
+
+% gen_server
+-export([init/1, handle_call/3, handle_cast/2, handle_info/2,
+         terminate/2, code_change/3]).
+
+
+-include("fuse_kernel.hrl").
+
+
+-record(state, {
+        high_module,
+        manager,
+        namespace_handler,
+        handler_state,
+        }).
+
+
+start_link(HighModule, Manager, NamespaceHandler) ->
+    gen_server:start_link(?MODULE, [HighModule, Manager, NamespaceHandler], []).
+
+request(Pid, Req) ->
+    gen_server:cast(Pid, {request, Req}).
+
+response(Pid, Req) ->
+    gen_server:cast(Pid, {response, Req}).
+
+write_response(Pid, Req) ->
+    gen_server:cast(Pid, {write_response, Req}).
+
+
+init([HighModule, Manager, NamespaceHandler]) ->
+    State = #state{
+        high_module=HighModule,
+        manager=Manager,
+        namespace_handler=NamespaceHandler,
+        handler_state=undefined
+        }
+    {ok, State}.
+
+handle_call(_Request, _From, State) ->
+    {reply, ok, State}.
+
+handle_cast({request, {Header, open, Req}},
+            #state{
+                high_module=HighModule,
+                namespace_handler=NamespaceHandler,
+                handler_state=HandlerState} = State) ->
+    
+    {NewState, Errno} =
+        case fuse_namespace_handler:lookup(Header#fuse_in_header.ino) of
+        false ->
+            {State, enoent};
+        Path ->
+            
+            HighModule:open(Path, HandlerState)
+        end,
+         
+    RspHeader =
+        #fuse_out_header{
+            unique=Header#fuse_in_header.unique,
+            errno=Errno},
+
+    % gen_server:reply from manager.. write_queue...
+    case fuse_high_manager:response([RspHeader]) of
+    enoent ->
+        % danmn... lookup enter stuff into tree...    
+    end, 
+
+    {ok, NewState}
+    
+
+    io:fwrite("::::IN ~p(~p,~p)~n", [Op, Header, Req]),
+    RspHeader = #fuse_out_header{unique=Header#fuse_in_header.unique},
+    {RspHeader2, Rsp2} =
+        case catch ?MODULE:Op(Header, Req) of
+        {error, Error} ->
+            {RspHeader#fuse_out_header{error=Error}, []};
+        {ok, Rsp} ->
+            {RspHeader#fuse_out_header{error=ok}, Rsp};
+        % undef, not implemeneted... enosys
+        {'EXIT', {undef, [{?MODULE, Op, _}|_]}} = Exit ->
+            io:fwrite(":::EXIT ~p~n", [Exit]),
+            {RspHeader#fuse_out_header{error=enosys}, []}
+        % TODO: how to handle errors inside fs implementation? einval?
+	% then propagate error some how?
+        end,
+
+    io:fwrite(":::OUT ~p ~p~n", [RspHeader2, Rsp2]),
+
+    fuse_kernel_handler:response(State#state.fuse_handler,
+				{RspHeader2, Rsp2}),
+
+    {noreply, State};
+
+%handle_cast({read, {Header, getattr, ok}}, State) ->
+%
+
+ %   fuse_kernel_handler:response(
+
+handle_cast({write_response, Errno}, State) ->
+    io:fwrite("fuse_lowlevel_test write_response: ~p", [Errno]),
+    {noreply, State};
+
+
+handle_cast(Request, State) ->
+    io:fwrite("handle_cast: ~p", [Request]),
+    {noreply, State}.
+
+handle_info({'EXIT', From, Reason}, State) ->
+    Fh = gb_trees:get(From, State#state.handlers_pid),
+    PidTree = gb_trees:delete(From, State#state.handlers_pid),
+    FhTree = gb_trees:delete(Fh, State#state.handlers_fh),
+    NewState = State#state{handlers_pid=PidTree, handlers_fh=FhTree},
+    {noreply, NewState};
+
+handle_info(_Request, State) ->
+    {noreply, State}.
+
+terminate(_Reason, _State) ->
+    ok.
+
+code_change(_OldVsn, State, _Extra) ->
+    {ok, State}.
+ 
